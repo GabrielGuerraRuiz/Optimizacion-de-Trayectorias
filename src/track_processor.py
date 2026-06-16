@@ -32,6 +32,7 @@ def procesar_pista(df):
 
     return {
         "cx": cx, "cy": cy,
+        "nx": nx, "ny": ny,
         "borde_der_x": borde_der_x, "borde_der_y": borde_der_y,
         "borde_izq_x": borde_izq_x, "borde_izq_y": borde_izq_y
     }
