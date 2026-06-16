@@ -1,86 +1,103 @@
 import os
+import time
 import numpy as np
 from pathlib import Path
 from src.track_loader import load_track_data
 from src.track_processor import procesar_pista
-from src.track_plotter import plot_track
-from src.vehicle_model import evaluar_tiempo_vuelta
-from src.evaluator import generar_trayectoria
-from src.evaluator import evaluar_fitness
+from src.evaluator import evaluar_fitness, generar_trayectoria
+from src.pso import EnjambrePSO
 
 def main():
-    # 1. Seleccionar los cinco circuitos
+    # 1. Configuración de Pistas y Rutas
     tracks = ["MexicoCity", "Montreal", "Monza", "Oschersleben", "Sakhir"]
-    
-    # Rutas de carpetas
     data_dir = Path("data")
     out_dir = Path("resultados")
-    fig_dir = out_dir / "figuras"
+    out_dir.mkdir(exist_ok=True)
     
-    # Crear carpeta de figuras si no existe
-    fig_dir.mkdir(parents=True, exist_ok=True)
+    # 2. Hiperparámetros del PSO
+    config_pso = {
+        'num_particulas': 30,   
+        'num_iteraciones': 30,  
+        'inercia_w': 0.7,       
+        'cognitivo_c1': 1.5,    
+        'social_c2': 1.5        
+    }
+    
+    num_ejecuciones = 10 # REQUERIMIENTO 5: 10 ejecuciones independientes
 
-    print("Iniciando selección y procesamiento de pistas...\n")
+    print(f"Iniciando Evaluación Experimental ({num_ejecuciones} corridas por pista)...\n")
 
     for track_name in tracks:
         file_path = data_dir / f"{track_name}.csv"
-        print(f"Procesando circuito: {track_name}...")
+        print(f"==================================================")
+        print(f" PROCESANDO CIRCUITO: {track_name}")
         
-        # Cargar línea central y límites laterales
+        # Carga y proceso geométrico
         df_raw = load_track_data(file_path)
         if df_raw is None:
-            print(f" -> No se encontró {file_path}. Omitiendo.\n")
             continue
-            
-        # Calcular los bordes geométricos para la gráfica
         track_data = procesar_pista(df_raw)
         
-        # Visualizar gráficamente la pista
-        save_fig_path = fig_dir / f"{track_name}_geometria.png"
-        plot_track(track_data, track_name, save_path=save_fig_path)
-        print(f" -> Guardado en: {save_fig_path}\n")
+        # Evaluación Baseline (Línea Central)
+        tiempo_base, _, _ = evaluar_fitness(track_data["cx"], track_data["cy"])
+        print(f" -> Tiempo Base (Línea Central): {tiempo_base:.3f} s")
+        
+        # Variables para estadística
+        tiempos_optimos = []
+        tiempos_computacionales = []
+        mejor_trayectoria_global = None
+        mejor_tiempo_absoluto = np.inf
 
-        # Evaluar la línea central como prueba del modelo físico
-        cx = track_data["cx"]
-        cy = track_data["cy"]
-        
-        tiempo_base, velocidades = evaluar_tiempo_vuelta(cx, cy)
-        
-        # Cálculos de conversión a km/h
-        vel_promedio_ms = np.mean(velocidades)
-        vel_promedio_kmh = vel_promedio_ms * 3.6
-        
-        print(f" -> Tiempo estimado en línea central: {tiempo_base:.2f} segundos")
-        print(f" -> Velocidad promedio: {vel_promedio_ms:.2f} m/s ({vel_promedio_kmh:.2f} km/h)")
+        # EJECUCIÓN MÚLTIPLE (Paso 5 del Proyecto)
+        for corrida in range(num_ejecuciones):
+            inicio_cpu = time.time()
+            
+            # Instanciar y ejecutar el optimizador
+            optimizador = EnjambrePSO(track_data, config_pso)
+            mejor_pos_corrida, mejor_tiempo_corrida, _ = optimizador.optimizar(verbose=False)
+            
+            fin_cpu = time.time()
+            tiempo_cpu = fin_cpu - inicio_cpu
+            
+            tiempos_optimos.append(mejor_tiempo_corrida)
+            tiempos_computacionales.append(tiempo_cpu)
+            
+            # Guardar la mejor trayectoria absoluta de las 10 corridas
+            if mejor_tiempo_corrida < mejor_tiempo_absoluto:
+                mejor_tiempo_absoluto = mejor_tiempo_corrida
+                mejor_trayectoria_global = mejor_pos_corrida
+                
+            print(f"  Corrida {corrida+1}/{num_ejecuciones} | Resultado: {mejor_tiempo_corrida:.3f} s | CPU: {tiempo_cpu:.2f} s")
 
-        # --- PRUEBA DE INTERPOLACIÓN ---
-        print("\n--- Pruebas del Motor de Interpolación ---")
+        # CÁLCULO ESTADÍSTICO
+        t_optimos = np.array(tiempos_optimos)
+        print(f"\n REPORTE ESTADÍSTICO - {track_name}:")
+        print(f" -> Mejor Tiempo:    {np.min(t_optimos):.3f} s")
+        print(f" -> Peor Tiempo:     {np.max(t_optimos):.3f} s")
+        print(f" -> Tiempo Promedio: {np.mean(t_optimos):.3f} s")
+        print(f" -> Desviación Est.: {np.std(t_optimos):.4f} s")
+        print(f" -> T. Computacional Medio: {np.mean(tiempos_computacionales):.2f} s por corrida")
+        print(f" -> Mejora Máxima Lograda:  -{tiempo_base - np.min(t_optimos):.3f} s")
         
-        # 1. Simular una partícula "cero" (sin desplazamientos laterales)
-        # Creamos un arreglo de ceros del mismo tamaño que los puntos de la pista
-        particula_cero = np.zeros(len(track_data["cx"]))
-        
-        # 2. Generar la trayectoria hiper-densa y suave
-        x_suave, y_suave, s_denso = generar_trayectoria(
-            track_data["cx"], 
-            track_data["cy"], 
-            track_data["nx"], # Asegúrate de que procesar_pista devuelva nx y ny
-            track_data["ny"], 
-            particula_cero
+        # GUARDAR DATOS PARA EL COMPAÑERO DE VISUALIZACIÓN
+        # Generamos la trayectoria suave final ganadora
+        x_opt, y_opt, s_denso = generar_trayectoria(
+            track_data['cx'], track_data['cy'], 
+            track_data['nx'], track_data['ny'], 
+            mejor_trayectoria_global
         )
+        _, v_max_opt, _ = evaluar_fitness(x_opt, y_opt)
         
-        # 3. Evaluar físicamente la nueva línea continua
-        tiempo_suave, v_max_suave, radios_suaves = evaluar_fitness(x_suave, y_suave)
-        
-        vel_suave_ms = np.mean(v_max_suave)
-        vel_suave_kmh = vel_suave_ms * 3.6
-        
-        print(f" -> Puntos discretos originales: {len(track_data['cx'])}")
-        print(f" -> Puntos interpolados continuos: {len(x_suave)}")
-        print(f" -> Tiempo estimado (Trayectoria Suave): {tiempo_suave:.2f} segundos")
-        print(f" -> Velocidad promedio (Suave): {vel_suave_ms:.2f} m/s ({vel_suave_kmh:.2f} km/h)")
-
-    print("Se han procesado las pistas seleccionadas")
+        # Empaquetamos la telemetría en un CSV para el Paso 6
+        import pandas as pd
+        df_telemetria = pd.DataFrame({
+            'x': x_opt,
+            'y': y_opt,
+            'v_max_ms': v_max_opt
+        })
+        path_telemetria = out_dir / f"{track_name}_trayectoria_optima.csv"
+        df_telemetria.to_csv(path_telemetria, index=False)
+        print(f" Trayectoria óptima exportada en: {path_telemetria}\n")
 
 if __name__ == "__main__":
     main()
