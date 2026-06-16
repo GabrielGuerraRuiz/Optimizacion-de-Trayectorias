@@ -30,8 +30,11 @@ def procesar_pista(df):
     borde_izq_x = cx - nx * w_left
     borde_izq_y = cy - ny * w_left
 
+    # RETORNO ACTUALIZADO: Ahora incluimos w_left, w_right, nx y ny
     return {
         "cx": cx, "cy": cy,
         "borde_der_x": borde_der_x, "borde_der_y": borde_der_y,
-        "borde_izq_x": borde_izq_x, "borde_izq_y": borde_izq_y
+        "borde_izq_x": borde_izq_x, "borde_izq_y": borde_izq_y,
+        "nx": nx, "ny": ny,
+        "w_right": w_right, "w_left": w_left
     }
