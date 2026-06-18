@@ -30,7 +30,8 @@ class PSODashboardApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("PSO Telemetry Dashboard - Optimización de Trayectorias")
-        self.geometry("1300x850")
+        self.geometry("900x600")
+        self.state('zoomed')
         self.configure(padx=10, pady=10)
         
         # Grid principal
@@ -63,7 +64,7 @@ class PSODashboardApp(tk.Tk):
 
         # Consola interna (Reemplaza a la terminal)
         ttk.Label(control_frame, text="Log de Operaciones:").pack(pady=5, padx=10, anchor="w")
-        self.console = tk.Text(control_frame, height=15, wrap=tk.WORD, state=tk.NORMAL, bg="#f4f4f4")
+        self.console = tk.Text(control_frame, height=8, wrap=tk.WORD, state=tk.NORMAL, bg="#f4f4f4")
         self.console.pack(pady=5, padx=10, fill="both", expand=True)
         
         # Interceptar sys.stdout para que los 'prints' salgan en el GUI
@@ -89,8 +90,15 @@ class PSODashboardApp(tk.Tk):
     def run_optimization(self):
         track_name = self.track_var.get()
         data_dir = Path("data")
+        
+        # --- NUEVA ESTRUCTURA DE CARPETAS ---
         out_dir = Path("resultados")
-        out_dir.mkdir(exist_ok=True, parents=True)
+        fig_dir = out_dir / "Figuras"
+        traj_dir = out_dir / "Trayectorias Optimizadas"
+        panel_dir = out_dir / "Panel de Telemetria"
+        
+        for d in [fig_dir, traj_dir, panel_dir]:
+            d.mkdir(parents=True, exist_ok=True)
 
         config_pso = {
             'num_particulas': self.particles_var.get(),
@@ -106,15 +114,13 @@ class PSODashboardApp(tk.Tk):
         df_raw = load_track_data(file_path)
         track_data = procesar_pista(df_raw)
 
-        tiempo_base, _, v_base = evaluar_fitness(track_data["cx"], track_data["cy"])
+        tiempo_base, v_base, _ = evaluar_fitness(track_data["cx"], track_data["cy"])
         print(f"Línea Central evaluada. Tiempo Base: {tiempo_base:.3f} s")
         print("Ejecutando Enjambre PSO...")
 
-        # Ejecutando la optimización
         optimizador = EnjambrePSO(track_data, config_pso)
         mejor_pos, mejor_tiempo, historial = optimizador.optimizar(verbose=True)
 
-        # Generar trayectorias óptimas
         x_opt, y_opt, _ = generar_trayectoria(
             track_data['cx'], track_data['cy'],
             track_data['nx'], track_data['ny'], mejor_pos
@@ -123,8 +129,8 @@ class PSODashboardApp(tk.Tk):
 
         print(f"\n¡Optimización Finalizada!\nMejora neta: -{tiempo_base - mejor_tiempo:.3f} s")
 
-        # Generar la figura usando tu módulo existente que ya cumple los requerimientos de gridspec
-        save_path = out_dir / f"{track_name}_gui_dashboard.png"
+        # Guardar en la subcarpeta del panel
+        save_path = panel_dir / f"{track_name}_gui_dashboard.png"
         plot_telemetry_panel(
             track_data=track_data,
             track_name=track_name,
@@ -135,14 +141,13 @@ class PSODashboardApp(tk.Tk):
             save_path=save_path
         )
         
-        # Renderizar en el GUI
         self.show_image(save_path)
         self.run_btn.config(state=tk.NORMAL)
 
     def show_image(self, path):
         img = Image.open(path)
         # Redimensionar dinámicamente para ajustar al marco de la aplicación
-        img.thumbnail((900, 750), Image.Resampling.LANCZOS)
+        img.thumbnail((700, 500), Image.Resampling.LANCZOS)
         photo = ImageTk.PhotoImage(img)
         self.image_label.config(image=photo)
         self.image_label.image = photo

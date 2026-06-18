@@ -31,7 +31,7 @@ def plot_track(track_data, track_name, save_path=None):
 def plot_telemetry_panel(track_data, track_name, best_traj, convergence_history, baseline_stats, optimized_stats, save_path=None):
     """
     Panel dinámico de telemetría para PSO:
-    1) Track heatmap con velocidad instantánea.
+    1) Track heatmap con velocidad instantánea (en km/h).
     2) Curva de convergencia del enjambre.
     3) Panel comparativo baseline vs optimización.
     """
@@ -40,7 +40,10 @@ def plot_telemetry_panel(track_data, track_name, best_traj, convergence_history,
 
     x_opt = np.asarray(best_traj['x'])
     y_opt = np.asarray(best_traj['y'])
-    v_max_opt = np.asarray(best_traj['v_max_ms'])
+    
+    # [CORRECCIÓN]: Extraemos m/s y lo convertimos inmediatamente a km/h para la gráfica
+    v_max_opt_ms = np.asarray(best_traj['v_max_ms'])
+    v_max_opt_kmh = v_max_opt_ms * 3.6 
 
     if len(x_opt) == 0 or len(y_opt) == 0:
         return
@@ -58,9 +61,12 @@ def plot_telemetry_panel(track_data, track_name, best_traj, convergence_history,
     ax_track.plot(track_data['borde_izq_x'], track_data['borde_izq_y'], color='gray', linewidth=1.6, label='Borde Izquierdo')
     ax_track.plot(track_data['cx'], track_data['cy'], color='black', linestyle='--', linewidth=1.0, alpha=0.65, label='Línea Central')
 
-    sc = ax_track.scatter(x_opt, y_opt, c=v_max_opt, cmap='coolwarm', s=18, linewidths=0)
+    # [CORRECCIÓN]: Usamos la variable v_max_opt_kmh para los colores del mapa de calor
+    sc = ax_track.scatter(x_opt, y_opt, c=v_max_opt_kmh, cmap='coolwarm', s=18, linewidths=0)
     cbar = fig.colorbar(sc, ax=ax_track, fraction=0.046, pad=0.04)
-    cbar.set_label('Velocidad instantánea (m/s)', rotation=90)
+    
+    # [CORRECCIÓN]: Cambiamos la etiqueta a km/h
+    cbar.set_label('Velocidad instantánea (km/h)', rotation=90)
 
     ax_track.set_title(f"{track_name} - Mapa de Calor de Velocidad")
     ax_track.set_xlabel('Coordenada X (m)')
@@ -76,6 +82,7 @@ def plot_telemetry_panel(track_data, track_name, best_traj, convergence_history,
     ax_conv.set_ylabel('Mejor tiempo de vuelta g_best (s)')
     ax_conv.grid(True, linestyle='--', alpha=0.35)
 
+    # Las estadísticas ya vienen correctamente calculadas desde main.py / GUI
     tiempo_base, vel_base, _ = baseline_stats
     tiempo_opt, vel_opt, _ = optimized_stats
     mejora = tiempo_base - tiempo_opt
@@ -103,7 +110,7 @@ def plot_telemetry_panel(track_data, track_name, best_traj, convergence_history,
     )
 
     fig.suptitle(f'Panel de Telemetría Dinámico - {track_name}', fontsize=16, fontweight='bold')
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.subplots_adjust(top=0.92)
 
     if save_path:
         fig.savefig(save_path, dpi=220, bbox_inches='tight')
