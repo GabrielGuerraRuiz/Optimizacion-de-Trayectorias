@@ -24,8 +24,8 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     config_pso = {
-        'num_particulas': 30,
-        'num_iteraciones': 30,
+        'num_particulas': 60,
+        'num_iteraciones': 150,
         'inercia_w': 0.7,
         'cognitivo_c1': 1.5,
         'social_c2': 1.5
