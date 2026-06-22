@@ -7,19 +7,18 @@ from src.track_loader import load_track_data
 from src.track_processor import procesar_pista
 from src.evaluator import evaluar_fitness, generar_trayectoria
 from src.pso import EnjambrePSO
-from src.track_plotter import plot_telemetry_panel
+# ---> IMPORTACIÓN ACTUALIZADA <---
+from src.track_plotter import plot_telemetry_panel, animar_trayectoria_con_zoom
 
 def main():
     tracks = ["MexicoCity", "Montreal", "Monza", "Oschersleben", "Sakhir"]
     data_dir = Path("data")
     
-    # --- NUEVA ESTRUCTURA DE CARPETAS ---
     out_dir = Path("resultados")
     fig_dir = out_dir / "Figuras"
     traj_dir = out_dir / "Trayectorias Optimizadas"
     panel_dir = out_dir / "Panel de Telemetria"
     
-    # Crear todas las carpetas automáticamente
     for d in [fig_dir, traj_dir, panel_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -93,23 +92,27 @@ def main():
             'v_max_ms': v_max_opt
         })
         
-        # Guardar en la nueva subcarpeta de trayectorias
         path_telemetria = traj_dir / f"{track_name}_trayectoria_optima.csv"
         df_telemetria.to_csv(path_telemetria, index=False)
         print(f" Trayectoria óptima exportada en: {path_telemetria}")
 
-        # Guardar en la nueva subcarpeta de paneles
+        diccionario_trayectoria = {"x": x_opt, "y": y_opt, "v_max_ms": v_max_opt}
+
         save_panel_path = panel_dir / f"{track_name}_panel_telemetria.png"
         plot_telemetry_panel(
             track_data=track_data,
             track_name=track_name,
-            best_traj={"x": x_opt, "y": y_opt, "v_max_ms": v_max_opt},
+            best_traj=diccionario_trayectoria,
             convergence_history=mejor_historial_convergencia,
             baseline_stats=(tiempo_base, float(np.mean(v_base)) * 3.6, v_base),
             optimized_stats=(mejor_tiempo_absoluto, float(np.mean(v_max_opt)) * 3.6, v_max_opt),
             save_path=save_panel_path
         )
         print(f" Panel de telemetría guardado en: {save_panel_path}\n")
+
+        # ---> NUEVA LLAMADA A LA ANIMACIÓN <---
+        print(f" Reproduciendo simulación en vivo de {track_name}... (Cierra la ventana para continuar)")
+        animar_trayectoria_con_zoom(track_data, diccionario_trayectoria)
 
 if __name__ == "__main__":
     main()

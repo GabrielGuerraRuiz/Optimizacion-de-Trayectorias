@@ -1,11 +1,12 @@
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
+from scipy.interpolate import CubicSpline
 from src.evaluator import generar_trayectoria, evaluar_fitness
 
 class EnjambrePSO:
     def __init__(self, track_data, config):
         """
         Inicializa el Enjambre PSO con hiperparámetros configurables.
+        Emplea nodos de control (checkpoints) para reducir el espacio de búsqueda.
         """
         self.track = track_data
         self.num_p = config['num_particulas']
@@ -14,55 +15,60 @@ class EnjambrePSO:
         self.c1 = config['cognitivo_c1']
         self.c2 = config['social_c2']
         
-        # Dimensiones: Una partícula tiene tantos valores como puntos en la línea central
-        self.dim = len(self.track['cx'])
+        # --- REDUCCIÓN DE DIMENSIONALIDAD ---
+        self.indices_cp = self.track['indices_checkpoints']
+        self.dim = len(self.indices_cp)
         
         # LÍMITES DEL ESPACIO DE BÚSQUEDA
-        # Un desplazamiento negativo mueve el auto a la izquierda, uno positivo a la derecha.
-        # Por lo tanto, el límite inferior es -w_left y el superior es +w_right.
-        self.limite_inf = -self.track['w_left']
-        self.limite_sup = self.track['w_right']
+        self.limite_inf = -self.track['w_left'][self.indices_cp]
+        self.limite_sup = self.track['w_right'][self.indices_cp]
         
-        # 1. INICIALIZACIÓN DE LA MATRIZ DE POSICIONES (num_p x dim)
+        # 1. INICIALIZACIÓN DE LA MATRIZ DE POSICIONES
         self.posiciones = np.zeros((self.num_p, self.dim))
         
-        # Generamos ruido y lo suavizamos para crear curvas base realistas
-        for i in range(1, self.num_p): # Saltamos el 0
-            ruido = np.random.uniform(self.limite_inf, self.limite_sup, self.dim)
-            # mode='wrap' es vital porque la pista es un circuito cerrado (el final conecta con el inicio)
-            self.posiciones[i] = gaussian_filter1d(ruido, sigma=15.0, mode='wrap')
+        # Inicialización aleatoria estrictamente en los nodos de control
+        for i in range(1, self.num_p):
+            self.posiciones[i] = np.random.uniform(self.limite_inf, self.limite_sup, self.dim)
             
-        # El índice 0 se queda como la línea central (puros ceros)
+        # ---> FIX: Garantizar que el inicio y el fin coincidan para el Spline Periódico
+        self.posiciones[:, -1] = self.posiciones[:, 0]
+            
+        # El índice 0 se queda en la línea central (puros ceros)
         self.posiciones[0] = np.zeros(self.dim)
         
         # 2. INICIALIZACIÓN DE VELOCIDADES
         self.velocidades = np.zeros((self.num_p, self.dim))
         
         # 3. MEMORIA DEL ENJAMBRE
-        self.pbest_pos = np.copy(self.posiciones)  # Mejor posición histórica de CADA partícula
-        self.pbest_fit = np.full(self.num_p, np.inf) # Tiempos de vuelta iniciales (infinito)
+        self.pbest_pos = np.copy(self.posiciones)
+        self.pbest_fit = np.full(self.num_p, np.inf)
         
-        self.gbest_pos = None     # Mejor posición global
-        self.gbest_fit = np.inf   # Mejor tiempo de vuelta global
+        self.gbest_pos = None
+        self.gbest_fit = np.inf
         
-        # Telemetría para el compañero de visualización
         self.historial_convergencia = []
 
     def optimizar(self, verbose=True):
         """
         Ejecuta el ciclo principal del PSO.
         """
+        n_puntos_pista = len(self.track['cx'])
+        puntos_totales = np.arange(n_puntos_pista)
+
         for t in range(self.num_iter):
             # A. FASE DE EVALUACIÓN
             for i in range(self.num_p):
-                # Extraemos los desplazamientos de la partícula 'i'
-                desplazamientos = self.posiciones[i]
+                despl_cp = self.posiciones[i]
                 
-                # Generamos la trayectoria suave
+                # --- INTERPOLACIÓN MATEMÁTICA ---
+                cs = CubicSpline(self.indices_cp, despl_cp, bc_type='periodic')
+                desplazamientos_completos = cs(puntos_totales)
+                
+                # Generamos la trayectoria visual completa
                 x_suave, y_suave, _ = generar_trayectoria(
                     self.track['cx'], self.track['cy'],
                     self.track['nx'], self.track['ny'],
-                    desplazamientos
+                    desplazamientos_completos
                 )
                 
                 # Evaluamos el tiempo de vuelta
@@ -71,19 +77,19 @@ class EnjambrePSO:
                 # B. ACTUALIZACIÓN DE MEMORIA INDIVIDUAL (pBest)
                 if tiempo < self.pbest_fit[i]:
                     self.pbest_fit[i] = tiempo
-                    self.pbest_pos[i] = np.copy(desplazamientos)
+                    self.pbest_pos[i] = np.copy(despl_cp)
                     
                     # C. ACTUALIZACIÓN DE MEMORIA GLOBAL (gBest)
                     if tiempo < self.gbest_fit:
                         self.gbest_fit = tiempo
-                        self.gbest_pos = np.copy(desplazamientos)
+                        self.gbest_pos = np.copy(despl_cp)
             
             # Registro de telemetría por iteración
             self.historial_convergencia.append(self.gbest_fit)
             if verbose:
                 print(f"  Iteración {t+1}/{self.num_iter} | Mejor Tiempo: {self.gbest_fit:.3f} s")
 
-            # D. FASE DE MOVIMIENTO (Actualización Vectorizada)
+            # D. FASE DE MOVIMIENTO
             r1 = np.random.rand(self.num_p, self.dim)
             r2 = np.random.rand(self.num_p, self.dim)
             
@@ -93,13 +99,14 @@ class EnjambrePSO:
             self.velocidades = (self.w * self.velocidades) + vel_cognitiva + vel_social
             self.posiciones = self.posiciones + self.velocidades
             
-            # ---> NUEVO: SUAVIZADO DEL ENJAMBRE <---
-            # Obligamos a que la nueva posición sea una curva matemáticamente continua
-            for i in range(self.num_p):
-                self.posiciones[i] = gaussian_filter1d(self.posiciones[i], sigma=5.0, mode='wrap')
-            
-            # E. RESTRICCIÓN DE MUROS (Clamping)
-            # Si una partícula cruza el muro tras la actualización, la forzamos al límite de la pista
+            # E. RESTRICCIÓN DE MUROS
             self.posiciones = np.clip(self.posiciones, self.limite_inf, self.limite_sup)
             
-        return self.gbest_pos, self.gbest_fit, self.historial_convergencia
+            # ---> FIX: Mantener la condición periódica tras la actualización de las partículas
+            self.posiciones[:, -1] = self.posiciones[:, 0]
+            
+        # Al finalizar, generamos el array completo
+        cs_final = CubicSpline(self.indices_cp, self.gbest_pos, bc_type='periodic')
+        mejor_trayectoria_comprimida = cs_final(puntos_totales)
+            
+        return mejor_trayectoria_comprimida, self.gbest_fit, self.historial_convergencia
